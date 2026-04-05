@@ -1,9 +1,10 @@
 import os
 from collections import defaultdict
 from database import DatabaseManager
+from config import DB_PATH
 
 class Scanner:
-    def __init__(self, root_dir="pics", db_path="piclic.db"):
+    def __init__(self, root_dir="pics", db_path=DB_PATH):
         self.root_dir = os.path.abspath(root_dir)
         self.db = DatabaseManager(db_path)
 

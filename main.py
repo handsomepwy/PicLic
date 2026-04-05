@@ -2,6 +2,7 @@ import sys
 import os
 from PySide6.QtWidgets import QApplication
 from ui.main_window import MainWindow
+from config import PICS_DIR
 
 def main():
     # Set app name and other metadata
@@ -10,13 +11,12 @@ def main():
     app.setOrganizationName("PicLic")
     
     # Ensure root pics directory exists
-    root_pics = os.path.join(os.getcwd(), "pics")
-    if not os.path.exists(root_pics):
-        os.makedirs(root_pics)
-        print(f"Created initial pics directory: {root_pics}")
+    if not os.path.exists(PICS_DIR):
+        os.makedirs(PICS_DIR)
+        print(f"Created initial pics directory: {PICS_DIR}")
 
     # Start Main Window
-    window = MainWindow(root_path=root_pics)
+    window = MainWindow(root_path=PICS_DIR)
     window.show()
     
     sys.exit(app.exec())

@@ -1,8 +1,9 @@
 import sqlite3
 import os
+from config import DB_PATH
 
 class DatabaseManager:
-    def __init__(self, db_path="piclic.db"):
+    def __init__(self, db_path=DB_PATH):
         self.db_path = db_path
         self._init_db()
 

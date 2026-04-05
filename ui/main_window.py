@@ -11,9 +11,10 @@ from ui.tag_panel import TagPanel
 from database import DatabaseManager
 from scanner import Scanner
 from thumbnail import ThumbnailManager
+from config import PICS_DIR
 
 class MainWindow(QMainWindow):
-    def __init__(self, root_path="pics"):
+    def __init__(self, root_path=PICS_DIR):
         super().__init__()
         self.setWindowTitle("PicLic - High Performance Image Browser")
         self.resize(1024, 768)

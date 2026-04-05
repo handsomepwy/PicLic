@@ -3,6 +3,7 @@ from PIL import Image
 from functools import lru_cache
 from PySide6.QtCore import QObject, Signal, QRunnable, QThreadPool, QSize
 from PySide6.QtGui import QImage, QPixmap
+from config import THUMBNAIL_CACHE_SIZE
 
 class ThumbnailWorker(QRunnable):
     """Worker for asynchronous thumbnail generation."""
@@ -37,7 +38,7 @@ class ThumbnailManager(QObject):
     """Manages thumbnail generation and caching."""
     thumbnail_ready = Signal(str, QPixmap)
 
-    def __init__(self, cache_size=500):
+    def __init__(self, cache_size=THUMBNAIL_CACHE_SIZE):
         super().__init__()
         self.cache_size = cache_size
         self.thread_pool = QThreadPool.globalInstance()
