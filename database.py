@@ -67,22 +67,55 @@ class DatabaseManager:
             cursor = conn.cursor()
             try:
                 cursor.execute('INSERT INTO images (jpg_path, folder_path) VALUES (?, ?)', (jpg_path, folder_path))
-                conn.commit()
                 return cursor.lastrowid
             except sqlite3.IntegrityError:
                 cursor.execute('SELECT id FROM images WHERE jpg_path = ?', (jpg_path,))
-                return cursor.fetchone()[0]
+                res = cursor.fetchone()
+                return res[0] if res else None
 
-    def add_file_to_image(self, image_id, file_path, file_type):
-        """Links a file (JPG, RAW, etc.) to an existing image ID."""
+    def add_images_batch(self, images_data):
+        """
+        Adds multiple images in a single transaction.
+        images_data: list of (jpg_path, folder_path)
+        Returns a mapping of jpg_path -> image_id
+        """
+        path_to_id = {}
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            # Wrap in a manual transaction for speed
+            cursor.execute('BEGIN TRANSACTION')
             try:
-                cursor.execute('INSERT INTO files (image_id, file_path, file_type) VALUES (?, ?, ?)', 
-                               (image_id, file_path, file_type))
+                # 1. Try to insert all. Ignore existing ones.
+                cursor.executemany('INSERT OR IGNORE INTO images (jpg_path, folder_path) VALUES (?, ?)', images_data)
+                
+                # 2. Get IDs for all paths provided
+                paths = [d[0] for d in images_data]
+                for i in range(0, len(paths), 999):
+                    chunk = paths[i:i+999]
+                    placeholders = ','.join(['?'] * len(chunk))
+                    cursor.execute(f'SELECT jpg_path, id FROM images WHERE jpg_path IN ({placeholders})', chunk)
+                    for path, img_id in cursor.fetchall():
+                        path_to_id[path] = img_id
                 conn.commit()
-            except sqlite3.IntegrityError:
-                pass # Already exists
+            except Exception as e:
+                conn.rollback()
+                print(f"Error in add_images_batch: {e}")
+        return path_to_id
+
+    def add_files_batch(self, files_data):
+        """
+        Adds multiple files in a single transaction.
+        files_data: list of (image_id, file_path, file_type)
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('BEGIN TRANSACTION')
+            try:
+                cursor.executemany('INSERT OR IGNORE INTO files (image_id, file_path, file_type) VALUES (?, ?, ?)', files_data)
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                print(f"Error in add_files_batch: {e}")
 
     def get_or_create_tag(self, tag_name):
         """Returns tag ID, creating it if it doesn't exist."""

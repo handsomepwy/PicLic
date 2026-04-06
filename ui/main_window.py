@@ -1,15 +1,15 @@
 import os
 from PySide6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
                                  QSplitter, QStatusBar, QToolBar,
-                                 QComboBox, QLabel, QLineEdit, QFileDialog)
-from PySide6.QtCore import Qt, QSize
+                                 QComboBox, QLabel, QLineEdit, QFileDialog, QProgressBar)
+from PySide6.QtCore import Qt, QSize, QThreadPool
 from PySide6.QtGui import QIcon, QAction
 
 from ui.folder_tree import FolderTree
 from ui.image_grid import ImageGrid
 from ui.tag_panel import TagPanel
 from database import DatabaseManager
-from scanner import Scanner
+from scanner import Scanner, ScanWorker
 from thumbnail import ThumbnailManager
 from config import PICS_DIR
 
@@ -89,6 +89,11 @@ class MainWindow(QMainWindow):
         # 5. Status Bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMaximumWidth(200)
+        self.progress_bar.setVisible(False)
+        self.status_bar.addPermanentWidget(self.progress_bar)
 
     def _load_folder(self, folder_path):
         """Loads images and subfolders for the given path."""
@@ -162,10 +167,30 @@ class MainWindow(QMainWindow):
         # (For now, we just update the model and trigger all in _load_folder)
 
     def _on_scan(self):
-        self.status_bar.showMessage("Scanning...")
-        self.scanner.scan()
-        self._load_folder(self.current_folder)
+        self.scan_action.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.status_bar.showMessage("Preparing scan...")
+        
+        worker = ScanWorker(self.root_path)
+        worker.signals.progress.connect(self._on_scan_progress)
+        worker.signals.status.connect(self._on_scan_status)
+        worker.signals.finished.connect(self._on_scan_finished)
+        
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_scan_progress(self, current, total):
+        self.progress_bar.setMaximum(total)
+        self.progress_bar.setValue(current)
+
+    def _on_scan_status(self, message):
+        self.status_bar.showMessage(message)
+
+    def _on_scan_finished(self):
+        self.scan_action.setEnabled(True)
+        self.progress_bar.setVisible(False)
         self.status_bar.showMessage("Scan complete.")
+        self._load_folder(self.current_folder)
 
     def _on_search(self):
         """Parses the search input and displays matching images."""
