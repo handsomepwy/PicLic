@@ -1,332 +1,290 @@
-# High-Performance Local Image Browser (Design Spec)
+# LOCAL PYTHON PHOTO MANAGER (PyQt + SQLite) — FULL SPECIFICATION
 
-## 1. Overview
+## GOAL
+Build a high-performance, local-first desktop photo management application in Python using PyQt (preferably PyQt6). The system must handle large image libraries (10k → 100k+ images), provide extremely fast browsing, hierarchical tagging, and efficient search.
 
-This project is a **local, high-performance image browsing application** designed to efficiently navigate and tag large collections of JPEG images.
-
-The system prioritizes:
-- Fast folder-based navigation (Explorer-like)
-- Very fast thumbnail browsing (JPEG-only)
-- Tag-based retrieval (AND / OR / EXCLUDE)
-- Minimal overhead (no EXIF, no RAW decoding in browsing)
-
-RAW files are treated as **supplementary assets** and are only accessed on demand.
-
----
-
-## 2. Core Principles
-
-1. **JPEG-first design**
-   - Only `.jpg/.jpeg` are used for browsing and thumbnails
-   - RAW files are ignored during browsing
-
-2. **Folder-first navigation**
-   - UI mirrors filesystem structure
-   - Tags act as filters, not replacements for navigation
-
-3. **No disk caching**
-   - Only in-memory thumbnail caching (LRU)
-
-4. **Minimal metadata**
-   - No EXIF parsing
-   - No camera info
-   - No deduplication
-
-5. **Responsiveness over completeness**
-   - Prioritize fast scrolling and interaction
+The design prioritizes:
+- fast JPEG-only browsing (ignore RAW during browsing)
+- folder-based navigation (like Windows Explorer)
+- SQLite-based indexing
+- in-memory thumbnail caching only (no disk cache)
+- async background scanning
+- responsive UI at all times
 
 ---
 
-## 3. File System Assumptions
+# 1. TECH STACK
 
-- Root directory: `pics/`
-- Arbitrary nested subfolders
-- Files grouped by filename:
-  ```
-  IMG_001.jpg
-  IMG_001.nef
-  IMG_001.dng
-  ```
+- Language: Python 3.10+
+- GUI: PyQt6 (PyQt preferred over PySide)
+- Database: SQLite3
+- Image decoding: Pillow-SIMD (or Pillow if unavailable)
+- Threading: QThread or Python threading with Qt signals
+- Optional: concurrent.futures for worker pools
+
+---
+
+# 2. CORE ARCHITECTURE
+
+Split into 4 modules:
+
+## 2.1 UI LAYER (PyQt)
+Responsibilities:
+- Folder tree navigation (like Windows Explorer)
+- Thumbnail grid view (virtualized)
+- Tag panel (tree + search input)
+- Image preview/open actions
+- Progress display for scanning
 
 Rules:
-- A "photo" is defined by the existence of a `.jpg`
-- All files sharing the same basename belong to that photo
+- NEVER load images directly in UI thread
+- NEVER scan filesystem in UI thread
 
 ---
 
-## 4. Data Model (SQLite)
+## 2.2 INDEXER (SEPARATE PROCESS OR BACKGROUND THREAD)
 
-### 4.1 Tables
+Responsibilities:
+- Walk root "pics" directory
+- ONLY index JPEG files (.jpg/.jpeg)
+- Group files by basename (ignore extension differences)
+
+Example grouping:
+IMG_001.jpg
+IMG_001.nef
+IMG_001.dng
+
+→ one logical "image entry" with multiple files
+
+Rules:
+- RAW files are NOT used for thumbnails
+- RAW files are stored as attachments only
+- scanning runs in background process or QThread
+
+Batch database writes (IMPORTANT):
+- commit every 100–500 files
+
+---
+
+## 2.3 DATABASE (SQLite)
+
+Enable WAL mode:
+PRAGMA journal_mode=WAL;
+
+### Tables:
 
 #### images
-```sql
-id INTEGER PRIMARY KEY
-jpg_path TEXT UNIQUE
-folder_path TEXT
-```
+- id INTEGER PRIMARY KEY
+- jpg_path TEXT UNIQUE
+- folder_path TEXT INDEXED
 
 #### files
-```sql
-id INTEGER PRIMARY KEY
-image_id INTEGER
-file_path TEXT
-file_type TEXT
-```
+- id INTEGER PRIMARY KEY
+- image_id INTEGER
+- file_path TEXT
+- file_type TEXT (jpg / nef / dng / etc.)
 
 #### tags
-```sql
-id INTEGER PRIMARY KEY
-name TEXT UNIQUE
-```
+- id INTEGER PRIMARY KEY
+- name TEXT UNIQUE (case-insensitive)
+- parent_id INTEGER NULL
 
 #### image_tags
-```sql
-image_id INTEGER
-tag_id INTEGER
-PRIMARY KEY (image_id, tag_id)
-```
+- image_id INTEGER INDEXED
+- tag_id INTEGER INDEXED
+
+#### scan_status
+- id INTEGER PRIMARY KEY (always 1 row)
+- is_running INTEGER
+- scanned_count INTEGER
+- current_path TEXT
+- last_updated TIMESTAMP
 
 ---
 
-### 4.2 Indexes
+# 3. THUMBNAIL SYSTEM
 
-```sql
-CREATE INDEX idx_images_folder ON images(folder_path);
-CREATE INDEX idx_image_tags_tag ON image_tags(tag_id);
-CREATE INDEX idx_image_tags_image ON image_tags(image_id);
-```
+## 3.1 RULES
+- ONLY generate thumbnails from JPEG files
+- DO NOT use RAW files for rendering
+- Use Pillow-SIMD for decoding
 
----
+## 3.2 CACHING
+- in-memory LRU cache only
+- key: (file_path, thumbnail_size)
+- no disk cache allowed
 
-## 5. Indexing System
+## 3.3 SIZES
+Support 3 zoom levels:
+- 128px
+- 256px
+- 512px
 
-### 5.1 Behavior
-
-- Manual trigger: **"Scan / Update" button**
-- No automatic filesystem watching
-
-### 5.2 Scan Algorithm
-
-1. Recursively walk `pics/`
-2. Group files by basename
-3. For each group:
-   - If `.jpg` exists:
-     - create/update image entry
-     - attach all files in group to `files` table
-   - otherwise ignore
-
-### 5.3 Simplifications
-
-- No rename tracking
-- No deletion tracking required (optional)
+## 3.4 THREADING
+Thumbnail generation MUST run in background threads.
+UI only receives ready QPixmap objects.
 
 ---
 
-## 6. Thumbnail System
+# 4. UI DESIGN
 
-### 6.1 Rules
-
-- Only generate thumbnails from JPEG
-- Ignore RAW completely
-
-### 6.2 Implementation
-
-- Use `Pillow-SIMD`
-- Use `.thumbnail()` or equivalent downscaling
-- Sizes:
-  - Small: 128px
-  - Medium: 256px
-  - Large: 512px
-
-### 6.3 Caching
-
-- In-memory LRU cache
-- Suggested size: 200–500 images
-
-### 6.4 Performance Requirements
-
-- Load only visible thumbnails
-- Asynchronous loading
-- Prefetch next viewport
+## 4.1 MAIN LAYOUT
+- Left: Folder Tree (QTreeView)
+- Center: Thumbnail Grid (virtualized QListView/QTableView)
+- Right: Tag panel + file info
 
 ---
 
-## 7. UI Design
-
-### 7.1 Layout
-
-Three main regions:
-
-1. **Folder Tree (left)**
-   - Mirrors filesystem
-   - Click to navigate
-
-2. **Image Grid (center)**
-   - Shows:
-     - subfolders (first)
-     - images (second)
-
-3. **Tag/Search Input (top or side)**
+## 4.2 GRID BEHAVIOR
+- virtualized rendering (only visible items rendered)
+- lazy loading thumbnails
+- smooth scrolling required
 
 ---
 
-### 7.2 Grid Behavior
-
-- Virtualized rendering (only visible items)
-- Keyboard navigation:
-  - Arrow keys → move
-  - Shift/Ctrl → multi-select
-
-### 7.3 Zoom Levels
-
-- 2–3 discrete levels:
-  - 128px
-  - 256px
-  - 512px
+## 4.3 IMAGE OPENING
+- double click → open system default viewer
+- Python: os.startfile(path) (Windows) or equivalent cross-platform
 
 ---
 
-## 8. Tagging System
+# 5. TAGGING SYSTEM
 
-### 8.1 Rules
+## 5.1 STRUCTURE
+Hierarchical tags (tree-based):
 
-- Flat tags (no hierarchy)
-- Case-insensitive (stored lowercase)
-- Unique names
+Example:
+astro
+  nebula
+    m42
+  galaxy
+    m31
 
-### 8.2 Operations
-
-- Apply tag instantly (no confirmation)
-- Batch tagging supported
-- No undo/redo (manual correction)
+Tags stored as:
+- parent_id relationship
+- optional full_path optimization (recommended for autocomplete)
 
 ---
 
-## 9. Search System
+## 5.2 TAG ASSIGNMENT UX
 
-### 9.1 Supported Queries
+PRIMARY METHOD (IMPORTANT):
+Use path-based input with autocomplete:
 
 Examples:
-```
-astro night
-astro|landscape night
-astro night -bad
-```
+- astro/nebula/m42
+- travel/japan/tokyo
 
-### 9.2 Semantics
+Rules:
+- Each "/" moves one level deeper
+- autocomplete restricted to valid children at each level
+- Enter applies tag to selected images instantly
 
-- Space = AND
-- `|` = OR
-- `-tag` = EXCLUDE
-
-### 9.3 Execution Model
-
-- Filter = (current folder scope) AND (tag query)
-
-### 9.4 SQL Strategy
-
-- AND → multiple joins
-- OR → union or IN clause
-- EXCLUDE → NOT EXISTS
+SECONDARY METHOD:
+- Tree view selection (for browsing only)
 
 ---
 
-## 10. File Opening
+## 5.3 TAG SEARCH LOGIC
 
-### 10.1 Default Action
+Support:
+- AND search: astro nebula
+- OR search: astro|landscape
+- EXCLUDE: -bad
 
-- Double-click → open JPG via OS default
-
-### 10.2 RAW Access
-
-- Show list of associated files:
-  ```
-  IMG_001.jpg
-  IMG_001.nef
-  IMG_001.dng
-  ```
-- User selects which to open
+Rules:
+- case-insensitive
+- fast SQLite indexed joins
+- supports multi-tag queries
 
 ---
 
-## 11. Sorting
-
-Default:
-1. Folders first
-2. Images next
-3. Sort by filename
+## 5.4 BATCH TAGGING
+- multi-select images
+- apply tag in single DB transaction
+- must be instant (no blocking UI)
 
 ---
 
-## 12. Performance Requirements
+# 6. SCANNING SYSTEM
 
-Target scale:
-- 10k → 100k images
+## 6.1 TRIGGER
+- manual button: "Scan / Update Library"
 
-Constraints:
-- Smooth scrolling
-- No UI blocking
-- Fast query (<100ms typical)
+## 6.2 BEHAVIOR
+- UI remains fully responsive
+- scanner runs in background process or QThread
+- no UI blocking allowed
 
----
+## 6.3 PROGRESS REPORTING
+Update SQLite scan_status table:
 
-## 13. Architecture (Suggested Modules)
+- scanned_count updated every 50–200 files
+- current_path updated continuously
+- is_running flag maintained
 
-### 13.1 scanner.py
-- Directory traversal
-- Database update
-
-### 13.2 database.py
-- SQLite connection
-- Query helpers
-
-### 13.3 thumbnail.py
-- Thumbnail generation
-- LRU cache
-
-### 13.4 ui/
-- main_window.py
-- folder_tree.py
-- image_grid.py
-- tag_input.py
-
-### 13.5 controller.py
-- Connect UI + database
-- Handle events
+UI polls scan_status every ~300–500ms
 
 ---
 
-## 14. Key Risks
+# 7. PERFORMANCE RULES
 
-1. Blocking UI thread during thumbnail loading  
-2. Rendering too many widgets (no virtualization)  
-3. Inefficient tag query joins  
+CRITICAL:
+- never load full images for thumbnails
+- never decode RAW files
+- never block UI thread with disk I/O
+- use batch DB operations only
+- use virtualized UI views
 
----
-
-## 15. Development Strategy
-
-### Phase 1 (MVP)
-- Folder navigation
-- JPEG display
-- Basic thumbnails
-
-### Phase 2
-- SQLite indexing
-- Tagging system
-
-### Phase 3
-- Search (AND / OR / EXCLUDE)
-
-### Phase 4
-- Performance optimization
-- Async thumbnail loading
+Target:
+- smooth scrolling at 100k images
 
 ---
 
-## 16. Non-Goals
+# 8. SEARCH & FILTERING
 
-- No EXIF parsing  
-- No RAW decoding for thumbnails  
-- No cloud sync  
-- No duplicate detection  
+Search scope:
+- current folder context + optional tag filters
+
+Rules:
+- filtering does NOT break folder navigation model
+- folder view remains primary structure
+- tags act as overlay filter
+
+---
+
+# 9. EXTENSIBILITY REQUIREMENT
+
+System must allow future expansion:
+- AI tagging
+- similarity search (embeddings)
+- additional metadata tables
+
+DO NOT hardcode assumptions preventing extensions.
+
+---
+
+# 10. NON-GOALS (IMPORTANT)
+
+DO NOT IMPLEMENT:
+- RAW decoding pipeline
+- disk-based thumbnail cache
+- cloud sync
+- complex editing features
+- EXIF-heavy filtering (explicitly unnecessary)
+
+---
+
+# 11. ACCEPTANCE CRITERIA
+
+System is correct if:
+- scrolling 10k images is smooth
+- thumbnails load instantly during scroll (cached)
+- scanning runs in background with visible progress
+- tagging is instant and keyboard-driven
+- folder navigation behaves like Windows Explorer
+- RAW files are accessible only on demand
+
+---
+
+END OF SPEC
