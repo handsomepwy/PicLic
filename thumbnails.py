@@ -85,7 +85,6 @@ class ThumbnailManager(QObject):
         # Too many can lead to I/O bottlenecks
         self.thread_pool.setMaxThreadCount(max(2, os.cpu_count() or 2))
         self.pending_requests = set()
-        self.active_workers = set() # Prevent garbage collection of workers
         self.lock = threading.Lock()
 
     def get_thumbnail(self, path, size):
@@ -115,23 +114,10 @@ class ThumbnailManager(QObject):
         worker = ThumbnailWorker(path, size)
         worker.signals.loaded.connect(self._on_thumbnail_loaded)
         worker.signals.error.connect(self._on_thumbnail_error)
-        
-        with self.lock:
-            self.active_workers.add(worker)
-            
         self.thread_pool.start(worker)
 
     def _on_thumbnail_loaded(self, path, size, qimage):
-        # Find and remove the worker from active set
         with self.lock:
-            worker_to_remove = None
-            for w in self.active_workers:
-                if w.path == path and w.size == size:
-                    worker_to_remove = w
-                    break
-            if worker_to_remove:
-                self.active_workers.remove(worker_to_remove)
-            
             self.pending_requests.discard((path, size))
         
         self.cache.put(path, size, qimage)
@@ -139,15 +125,6 @@ class ThumbnailManager(QObject):
 
     def _on_thumbnail_error(self, path, error_msg):
         with self.lock:
-            # Find and remove the worker from active set
-            worker_to_remove = None
-            for w in self.active_workers:
-                if w.path == path:
-                    worker_to_remove = w
-                    break
-            if worker_to_remove:
-                self.active_workers.remove(worker_to_remove)
-
             # We use a special key for size to clear pending requests if needed
             # For now just discard
             # Find all sizes that might have failed for this path
