@@ -13,6 +13,7 @@ from database import Database
 from scanner import Scanner
 from thumbnails import ThumbnailManager
 from gallery_model import GalleryModel
+import config
 
 class ScanWorker(QThread):
     finished = pyqtSignal()
@@ -45,7 +46,7 @@ class MainWindow(QMainWindow):
         self._setup_connections()
         
         # Initialize with root folder
-        self.root_pics_path = self.db.normalize_path(os.path.join(os.getcwd(), "pics"))
+        self.root_pics_path = self.db.normalize_path(config.ROOT_PICS_DIR)
         self.gallery_model.root_pics_dir = self.root_pics_path
         
         if os.path.exists(self.root_pics_path):
@@ -106,11 +107,11 @@ class MainWindow(QMainWindow):
         self.gallery_view = QListView()
         self.gallery_view.setViewMode(QListView.ViewMode.IconMode)
         self.gallery_view.setResizeMode(QListView.ResizeMode.Adjust)
-        self.gallery_view.setIconSize(QSize(160, 160)) # Reduced icon size for better layout
-        self.gallery_view.setGridSize(QSize(200, 220)) # Taller grid for captions
+        self.gallery_view.setIconSize(QSize(config.DEFAULT_THUMBNAIL_SIZE, config.DEFAULT_THUMBNAIL_SIZE))
+        self.gallery_view.setGridSize(QSize(config.GRID_ITEM_WIDTH, config.GRID_ITEM_HEIGHT))
         self.gallery_view.setWordWrap(True)
-        self.gallery_view.setSpacing(15)
-        self.gallery_view.setUniformItemSizes(False) # Allow varying sizes for folders vs images
+        self.gallery_view.setSpacing(config.GRID_SPACING)
+        self.gallery_view.setUniformItemSizes(False)
         
         self.gallery_model = GalleryModel(self.db, self.thumbnail_manager)
         self.gallery_view.setModel(self.gallery_model)
@@ -353,7 +354,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Error applying tag: {e}")
 
     def _on_scan_requested(self):
-        root_path = os.path.join(os.getcwd(), "pics")
+        root_path = config.ROOT_PICS_DIR
         if os.path.exists(root_path):
             norm_root = self.db.normalize_path(root_path)
             self.statusBar().showMessage(f"Scanning {norm_root}...")

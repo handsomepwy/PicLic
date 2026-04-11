@@ -4,6 +4,7 @@ from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject, QThreadPool, pyqtSlot
 from collections import OrderedDict
 import threading
+import config
 
 class ThumbnailSignals(QObject):
     """
@@ -49,7 +50,7 @@ class ThumbnailCache:
     """
     In-memory LRU cache for thumbnails.
     """
-    def __init__(self, max_size=500):
+    def __init__(self, max_size=config.THUMBNAIL_CACHE_SIZE):
         self.cache = OrderedDict()
         self.max_size = max_size
         self.lock = threading.Lock()
@@ -76,7 +77,7 @@ class ThumbnailManager(QObject):
     """
     thumbnail_ready = pyqtSignal(str, int, QImage)
 
-    def __init__(self, cache_size=1000):
+    def __init__(self, cache_size=config.THUMBNAIL_CACHE_SIZE):
         super().__init__()
         self.cache = ThumbnailCache(max_size=cache_size)
         self.thread_pool = QThreadPool.globalInstance()

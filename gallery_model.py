@@ -2,6 +2,7 @@ from PyQt6.QtCore import QAbstractListModel, Qt, QSize, pyqtSignal, QModelIndex
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import QFileIconProvider
 import os
+import config
 
 class GalleryModel(QAbstractListModel):
     """
@@ -13,7 +14,7 @@ class GalleryModel(QAbstractListModel):
         self.db = database
         self.thumbnail_manager = thumbnail_manager
         self.items = []  # List of dicts with item info: {type: 'folder'|'image', path: '...', name: '...'}
-        self.thumbnail_size = 160
+        self.thumbnail_size = config.DEFAULT_THUMBNAIL_SIZE
         self.current_folder = ""
         self.root_pics_dir = "" # Will be set by main window
         self.filter_tag_id = None # ID of the tag to filter by

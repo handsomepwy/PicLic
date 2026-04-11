@@ -1,9 +1,10 @@
 import sqlite3
 import os
 from datetime import datetime
+import config
 
 class Database:
-    def __init__(self, db_path="piclic.db"):
+    def __init__(self, db_path=config.DB_FILE):
         self.db_path = db_path
         self._init_db()
 
