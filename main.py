@@ -194,6 +194,9 @@ class MainWindow(QMainWindow):
         self.tag_input.returnPressed.connect(self._on_tag_applied)
 
     def _refresh_tag_tree(self):
+        # Prune tags that are no longer used by any image
+        self.db.prune_unused_tags()
+        
         self.tag_tree_model.clear()
         self.tag_tree_model.setHorizontalHeaderLabels(["Tags"])
         
@@ -310,9 +313,13 @@ class MainWindow(QMainWindow):
                 if image_id:
                     # Remove from DB
                     self.db.remove_tag_from_image(image_id, tag_id)
-                    # Refresh the view
+                    # Prune tags that are no longer used by any image
+                    self.db.prune_unused_tags()
+                    # Refresh the views
+                    self._update_tag_completer()
+                    self._refresh_tag_tree()
                     self._on_image_selected()
-                    self.statusBar().showMessage(f"Tag removed from image.")
+                    self.statusBar().showMessage(f"Tag removed from image and cleaned up.")
 
     def _on_tag_applied(self):
         tag_path = self.tag_input.text().strip()

@@ -260,6 +260,32 @@ class Database:
         finally:
             conn.close()
 
+    def prune_unused_tags(self):
+        """
+        Recursively deletes tags that are not assigned to any images AND have no children.
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            while True:
+                # Find tags with no children and no image associations
+                cursor.execute("""
+                    SELECT id FROM tags 
+                    WHERE id NOT IN (SELECT parent_id FROM tags WHERE parent_id IS NOT NULL)
+                    AND id NOT IN (SELECT tag_id FROM image_tags)
+                """)
+                rows = cursor.fetchall()
+                if not rows:
+                    break
+                
+                # Delete those tags
+                ids_to_delete = [row[0] for row in rows]
+                placeholders = ', '.join(['?'] * len(ids_to_delete))
+                cursor.execute(f"DELETE FROM tags WHERE id IN ({placeholders})", ids_to_delete)
+                conn.commit()
+        finally:
+            conn.close()
+
     def get_tag_descendants(self, tag_id):
         """
         Returns a list of tag IDs including the given tag_id and all its descendants.
