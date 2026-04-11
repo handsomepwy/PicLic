@@ -4,15 +4,27 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSplitter, QTreeView, QListView, 
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QLineEdit, 
     QPushButton, QFrame, QScrollArea, QListWidget, QStatusBar,
-    QCompleter
+    QCompleter, QProgressBar
 )
-from PyQt6.QtCore import Qt, QSize, QDir, QStringListModel
+from PyQt6.QtCore import Qt, QSize, QDir, QStringListModel, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QFileSystemModel, QAction, QStandardItemModel, QStandardItem, QIcon
 
 from database import Database
 from scanner import Scanner
 from thumbnails import ThumbnailManager
 from gallery_model import GalleryModel
+
+class ScanWorker(QThread):
+    finished = pyqtSignal()
+    
+    def __init__(self, scanner, root_path):
+        super().__init__()
+        self.scanner = scanner
+        self.root_path = root_path
+        
+    def run(self):
+        self.scanner.scan(self.root_path)
+        self.finished.emit()
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -24,6 +36,9 @@ class MainWindow(QMainWindow):
         self.db = Database()
         self.scanner = Scanner()
         self.thumbnail_manager = ThumbnailManager()
+        self.scan_timer = QTimer()
+        self.scan_timer.setInterval(500) # Poll every 500ms
+        self.scan_worker = None
         
         # Setup UI
         self._setup_ui()
@@ -69,9 +84,17 @@ class MainWindow(QMainWindow):
         
         left_layout.addWidget(self.folder_tree)
         
-        # Scan Button
+        # Scan Button and Progress Bar
         self.scan_btn = QPushButton("Scan Library")
         left_layout.addWidget(self.scan_btn)
+        
+        self.scan_progress = QProgressBar()
+        self.scan_progress.setVisible(False)
+        self.scan_progress.setMinimum(0)
+        self.scan_progress.setMaximum(0) # Indeterminate until we have a count
+        self.scan_progress.setTextVisible(True)
+        self.scan_progress.setFormat("Scanning... %v found")
+        left_layout.addWidget(self.scan_progress)
         
         splitter.addWidget(left_panel)
         
@@ -163,8 +186,9 @@ class MainWindow(QMainWindow):
         # Tag tree selection -> filtering
         self.tag_tree_view.clicked.connect(self._on_tag_tree_selected)
         
-        # Scan button
+        # Scan button and status timer
         self.scan_btn.clicked.connect(self._on_scan_requested)
+        self.scan_timer.timeout.connect(self._on_poll_scan_status)
         
         # Tag input enter key
         self.tag_input.returnPressed.connect(self._on_tag_applied)
@@ -326,15 +350,51 @@ class MainWindow(QMainWindow):
         if os.path.exists(root_path):
             norm_root = self.db.normalize_path(root_path)
             self.statusBar().showMessage(f"Scanning {norm_root}...")
-            # For now run scanning in main thread (blocking), we will improve this later
-            self.scanner.scan(norm_root)
-            # Refresh current folder view if any
-            current_idx = self.folder_tree.currentIndex()
-            if current_idx.isValid():
-                self._on_folder_selected(current_idx)
-            self.statusBar().showMessage("Scan complete.")
+            
+            # Reset and show progress bar
+            self.scan_progress.setValue(0)
+            self.scan_progress.setMaximum(0) # Busy indicator
+            self.scan_progress.setVisible(True)
+            self.scan_btn.setEnabled(False)
+            
+            # Start background worker
+            self.scan_worker = ScanWorker(self.scanner, norm_root)
+            self.scan_worker.finished.connect(self._on_scan_finished)
+            self.scan_worker.start()
+            
+            # Start polling timer
+            self.scan_timer.start()
         else:
             self.statusBar().showMessage("Error: pics directory not found.")
+
+    def _on_poll_scan_status(self):
+        status = self.db.get_scan_status()
+        if status:
+            count = status['scanned_count']
+            path = status['current_path']
+            # Update progress bar
+            if count > self.scan_progress.maximum():
+                self.scan_progress.setMaximum(count)
+            self.scan_progress.setValue(count)
+            self.scan_progress.setFormat(f"Found: {count} images")
+            self.statusBar().showMessage(f"Scanning: {path}")
+
+    def _on_scan_finished(self):
+        self.scan_timer.stop()
+        self.scan_btn.setEnabled(True)
+        self.scan_progress.setVisible(False)
+        self.statusBar().showMessage("Scan complete.")
+        
+        # Refresh current folder view if any
+        current_idx = self.folder_tree.currentIndex()
+        if current_idx.isValid():
+            self._on_folder_selected(current_idx)
+        else:
+            # Refresh root view if nothing selected
+            self._on_folder_selected_by_path(self.root_pics_path)
+
+    def _on_scan_requested_old(self): # Keeping for reference of what was replaced
+        pass
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
