@@ -2,7 +2,7 @@ import os
 
 # --- PATHS ---
 # Root directory where photos are stored
-ROOT_PICS_DIR = os.path.join(os.getcwd(), "pics")
+ROOT_PICS_DIR = os.path.join(os.getcwd(), "..", "pics")
 
 # SQLite database file path
 DB_FILE = "piclic.db"
@@ -17,6 +17,6 @@ DEFAULT_THUMBNAIL_SIZE = 160
 
 # --- UI SETTINGS ---
 # Grid layout spacing and sizes
-GRID_SPACING = 15
-GRID_ITEM_WIDTH = 200
-GRID_ITEM_HEIGHT = 220
+GRID_SPACING = 0
+GRID_ITEM_WIDTH = 160
+GRID_ITEM_HEIGHT = 190

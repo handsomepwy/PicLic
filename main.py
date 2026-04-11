@@ -107,11 +107,14 @@ class MainWindow(QMainWindow):
         self.gallery_view = QListView()
         self.gallery_view.setViewMode(QListView.ViewMode.IconMode)
         self.gallery_view.setResizeMode(QListView.ResizeMode.Adjust)
+        self.gallery_view.setSelectionMode(QListView.SelectionMode.ExtendedSelection) # Enable multi-select
         self.gallery_view.setIconSize(QSize(config.DEFAULT_THUMBNAIL_SIZE, config.DEFAULT_THUMBNAIL_SIZE))
         self.gallery_view.setGridSize(QSize(config.GRID_ITEM_WIDTH, config.GRID_ITEM_HEIGHT))
         self.gallery_view.setWordWrap(True)
         self.gallery_view.setSpacing(config.GRID_SPACING)
         self.gallery_view.setUniformItemSizes(False)
+        self.gallery_view.setContentsMargins(0, 0, 0, 0)
+        self.gallery_view.setStyleSheet("QListView::item { margin: 0px; padding: 0px; }")
         
         self.gallery_model = GalleryModel(self.db, self.thumbnail_manager)
         self.gallery_view.setModel(self.gallery_model)
@@ -273,11 +276,21 @@ class MainWindow(QMainWindow):
         self.image_tags_model.clear()
         self.image_tags_model.setHorizontalHeaderLabels(["Tags"])
         
-        if indexes:
-            index = indexes[0]
-            item = self.gallery_model.data(index, Qt.ItemDataRole.UserRole)
+        if not indexes:
+            return
+
+        if len(indexes) > 1:
+            # For multi-select, show a placeholder or common tags
+            # For now, let's just show how many images are selected
+            item_tree = QStandardItem(f"{len(indexes)} images selected")
+            item_tree.setEnabled(False)
+            self.image_tags_model.appendRow(item_tree)
+            return
             
-            if item and item['type'] == 'image':
+        index = indexes[0]
+        item = self.gallery_model.data(index, Qt.ItemDataRole.UserRole)
+        
+        if item and item['type'] == 'image':
                 path = item['path']
                 image_id = self.db.get_image_id_by_path(path)
                 if image_id:
