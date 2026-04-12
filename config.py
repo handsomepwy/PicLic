@@ -9,7 +9,7 @@ DB_FILE = "piclic.db"
 
 # --- THUMBNAILS ---
 # Maximum number of thumbnails to keep in memory (LRU cache)
-THUMBNAIL_CACHE_SIZE = 1000
+THUMBNAIL_CACHE_SIZE = 100
 
 # Default zoom size (side length in pixels)
 # Supported levels per spec: 128, 256, 512

@@ -32,6 +32,7 @@ class GalleryModel(QAbstractListModel):
         """
         Updates the model to show images and folders from a specific folder.
         """
+        self.thumbnail_manager.clear_requests() # Clear pending requests for old folder
         self.current_folder = self.db.normalize_path(folder_path)
         self.beginResetModel()
         self.items = []

@@ -2,9 +2,10 @@ import os
 from PIL import Image
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject, QThreadPool, pyqtSlot
-from collections import OrderedDict
+from collections import OrderedDict, deque
 import threading
 import config
+import queue
 
 class ThumbnailSignals(QObject):
     """
@@ -74,28 +75,35 @@ class ThumbnailCache:
 class ThumbnailManager(QObject):
     """
     Manager for thumbnail requests and caching.
+    Uses a custom LIFO queue to handle high-frequency requests during scrolling.
     """
     thumbnail_ready = pyqtSignal(str, int, QImage)
 
     def __init__(self, cache_size=config.THUMBNAIL_CACHE_SIZE):
         super().__init__()
         self.cache = ThumbnailCache(max_size=cache_size)
-        self.thread_pool = QThreadPool.globalInstance()
-        # Set a reasonable number of threads for thumbnail generation
-        # Too many can lead to I/O bottlenecks
-        self.thread_pool.setMaxThreadCount(max(2, os.cpu_count() or 2))
-        self.pending_requests = set()
+        
+        # We use a custom worker system instead of QThreadPool for better control
+        self.request_queue = deque()
+        self.pending_paths = set()
         self.lock = threading.Lock()
+        
+        # Fixed number of worker threads to avoid disk thrashing
+        # 2 threads is usually optimal for HDD/SSD read without blocking too much
+        self.num_workers = 2
+        self.workers = []
+        self.running = True
+        
+        for _ in range(self.num_workers):
+            t = threading.Thread(target=self._worker_loop, daemon=True)
+            t.start()
+            self.workers.append(t)
 
     def get_thumbnail(self, path, size):
         """
-        Requests a thumbnail of a given size.
-        If cached, emits thumbnail_ready immediately.
-        Otherwise, schedules a background worker.
+        Requests a thumbnail. If cached, emits immediately.
+        Otherwise, adds to the FRONT of the queue (LIFO).
         """
-        # Normalize path before using as key
-        # Note: We don't have access to Database.normalize_path here without circular import
-        # So we use a simple normalization that matches our database logic
         path = os.path.normpath(os.path.normcase(os.path.abspath(path)))
         
         cached_img = self.cache.get(path, size)
@@ -103,36 +111,66 @@ class ThumbnailManager(QObject):
             self.thumbnail_ready.emit(path, size, cached_img)
             return
 
-        # Check if already requested to avoid duplicate workers
-        request_key = (path, size)
         with self.lock:
-            if request_key in self.pending_requests:
+            if (path, size) in self.pending_paths:
                 return
-            self.pending_requests.add(request_key)
+            
+            # Add to front of queue (LIFO) so current visible items are processed first
+            self.request_queue.appendleft((path, size))
+            self.pending_paths.add((path, size))
+            
+            # Limit the queue size to avoid processing thousands of stale requests
+            if len(self.request_queue) > 200:
+                old_path, old_size = self.request_queue.pop() # Remove from back (oldest)
+                self.pending_paths.discard((old_path, old_size))
 
-        # Create and start worker
-        worker = ThumbnailWorker(path, size)
-        worker.signals.loaded.connect(self._on_thumbnail_loaded)
-        worker.signals.error.connect(self._on_thumbnail_error)
-        self.thread_pool.start(worker)
-
-    def _on_thumbnail_loaded(self, path, size, qimage):
+    def clear_requests(self):
+        """
+        Clears all pending thumbnail requests.
+        Useful when changing folders.
+        """
         with self.lock:
-            self.pending_requests.discard((path, size))
-        
-        self.cache.put(path, size, qimage)
-        self.thumbnail_ready.emit(path, size, qimage)
+            self.request_queue.clear()
+            self.pending_paths.clear()
 
-    def _on_thumbnail_error(self, path, error_msg):
-        with self.lock:
-            # We use a special key for size to clear pending requests if needed
-            # For now just discard
-            # Find all sizes that might have failed for this path
-            to_remove = [req for req in self.pending_requests if req[0] == path]
-            for req in to_remove:
-                self.pending_requests.discard(req)
-        
-        print(f"Error loading thumbnail for {path}: {error_msg}")
+    def _worker_loop(self):
+        while self.running:
+            request = None
+            with self.lock:
+                if self.request_queue:
+                    request = self.request_queue.popleft()
+            
+            if not request:
+                import time
+                time.sleep(0.01) # Small sleep when idle
+                continue
+            
+            path, size = request
+            try:
+                # Pillow-SIMD or Pillow decoding
+                with Image.open(path) as img:
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
+                    
+                    resample_filter = getattr(Image, 'Resampling', Image).NEAREST if hasattr(Image, 'Resampling') else Image.NEAREST
+                    img.thumbnail((size, size), resample_filter)
+                    
+                    data = img.tobytes("raw", "RGB")
+                    qimage = QImage(data, img.size[0], img.size[1], QImage.Format.Format_RGB888).copy()
+                    
+                    # Store in cache and emit
+                    self.cache.put(path, size, qimage)
+                    self.thumbnail_ready.emit(path, size, qimage)
+            except Exception as e:
+                print(f"Error loading thumbnail for {path}: {e}")
+            finally:
+                with self.lock:
+                    self.pending_paths.discard((path, size))
+
+    def stop(self):
+        self.running = False
+        for t in self.workers:
+            t.join()
 
 if __name__ == "__main__":
     # Simple test for ThumbnailManager
