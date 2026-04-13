@@ -136,7 +136,7 @@ class MainWindow(QMainWindow):
         # Setup Tag Completer
         self.tag_completer = QCompleter()
         self.tag_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self.tag_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.tag_completer.setFilterMode(Qt.MatchFlag.MatchStartsWith)
         self.tag_input.setCompleter(self.tag_completer)
         self._update_tag_completer()
         
@@ -227,17 +227,47 @@ class MainWindow(QMainWindow):
         self.tag_tree_view.expandAll()
 
     def _update_tag_completer(self):
-        # In a real app, this would be more complex to handle hierarchical paths
-        # For now, let's just get all tag names or full paths
-        conn = self.db._get_connection()
-        cursor = conn.cursor()
-        # This is a simplified version of path optimization mentioned in spec
-        cursor.execute("SELECT name FROM tags")
-        tags = [row[0] for row in cursor.fetchall()]
-        conn.close()
+        tags = self.db.get_all_tags()
+        full_paths = self._build_tag_paths(tags)
         
-        model = QStringListModel(tags)
+        model = QStringListModel(full_paths)
         self.tag_completer.setModel(model)
+
+    def _build_tag_paths(self, tags):
+        """
+        Build full tag paths from hierarchical tag rows.
+        Example: travel/japan/tokyo
+        """
+        if not tags:
+            return []
+
+        tags_by_id = {tag['id']: tag for tag in tags}
+        children_by_parent = {}
+        roots = []
+
+        for tag in tags:
+            parent_id = tag['parent_id']
+            if parent_id is None or parent_id not in tags_by_id:
+                roots.append(tag['id'])
+                continue
+            children_by_parent.setdefault(parent_id, []).append(tag['id'])
+
+        for child_ids in children_by_parent.values():
+            child_ids.sort(key=lambda tag_id: tags_by_id[tag_id]['name'].lower())
+        roots.sort(key=lambda tag_id: tags_by_id[tag_id]['name'].lower())
+
+        full_paths = []
+        queue = [(root_id, tags_by_id[root_id]['name']) for root_id in roots]
+
+        while queue:
+            current_id, current_path = queue.pop(0)
+            full_paths.append(current_path)
+
+            for child_id in children_by_parent.get(current_id, []):
+                child_name = tags_by_id[child_id]['name']
+                queue.append((child_id, f"{current_path}/{child_name}"))
+
+        return full_paths
 
     def _on_tag_tree_selected(self, index):
         tag_id = self.tag_tree_model.itemFromIndex(index).data(Qt.ItemDataRole.UserRole)
