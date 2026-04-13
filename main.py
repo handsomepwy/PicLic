@@ -14,6 +14,12 @@ from scanner import Scanner
 from thumbnails import ThumbnailManager
 from gallery_model import GalleryModel
 import config
+try:
+    from qt_material import apply_stylesheet
+except ImportError:
+    apply_stylesheet = None
+
+SELECTION_COLOR = "#CEDEF9"
 
 class ScanWorker(QThread):
     finished = pyqtSignal()
@@ -79,6 +85,15 @@ class MainWindow(QMainWindow):
         
         self.folder_tree.setModel(self.folder_model)
         self.folder_tree.setHeaderHidden(True)
+        self.folder_tree.setStyleSheet(
+            f"""
+            QTreeView::item:selected:active,
+            QTreeView::item:selected:!active {{
+                background-color: {SELECTION_COLOR};
+                color: #000000;
+            }}
+            """
+        )
         # Hide all columns except the first one (name)
         for i in range(1, self.folder_model.columnCount()):
             self.folder_tree.hideColumn(i)
@@ -114,7 +129,19 @@ class MainWindow(QMainWindow):
         self.gallery_view.setSpacing(config.GRID_SPACING)
         self.gallery_view.setUniformItemSizes(False)
         self.gallery_view.setContentsMargins(0, 0, 0, 0)
-        self.gallery_view.setStyleSheet("QListView::item { margin: 0px; padding: 0px; }")
+        self.gallery_view.setStyleSheet(
+            f"""
+            QListView::item {{
+                margin: 0px;
+                padding: 0px;
+            }}
+            QListView::item:selected:active,
+            QListView::item:selected:!active {{
+                background-color: {SELECTION_COLOR};
+                color: #000000;
+            }}
+            """
+        )
         
         self.gallery_model = GalleryModel(self.db, self.thumbnail_manager)
         self.gallery_view.setModel(self.gallery_model)
@@ -137,6 +164,15 @@ class MainWindow(QMainWindow):
         self.tag_completer = QCompleter()
         self.tag_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.tag_completer.setFilterMode(Qt.MatchFlag.MatchStartsWith)
+        self.tag_completer.popup().setStyleSheet(
+            f"""
+            QListView::item:selected:active,
+            QListView::item:selected:!active {{
+                background-color: {SELECTION_COLOR};
+                color: #000000;
+            }}
+            """
+        )
         self.tag_input.setCompleter(self.tag_completer)
         self._update_tag_completer()
         
@@ -150,6 +186,16 @@ class MainWindow(QMainWindow):
         self.image_tags_view.setModel(self.image_tags_model)
         self.image_tags_view.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
         self.image_tags_view.setHeaderHidden(True)
+        self.image_tags_view.setStyleSheet(
+            """
+            QTreeView::item {
+                height: 12px;
+                padding-top: 0px;
+                padding-bottom: 0px;
+                margin: 0px;
+            }
+            """
+        )
         right_layout.addWidget(self.image_tags_view)
         
         # Tag Tree Section
@@ -160,6 +206,16 @@ class MainWindow(QMainWindow):
         self.tag_tree_view.setModel(self.tag_tree_model)
         self.tag_tree_view.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
         self.tag_tree_view.setHeaderHidden(True)
+        self.tag_tree_view.setStyleSheet(
+            """
+            QTreeView::item {
+                height: 12px;
+                padding-top: 0px;
+                padding-bottom: 0px;
+                margin: 0px;
+            }
+            """
+        )
         right_layout.addWidget(self.tag_tree_view)
         
         # Set stretch factors for the two trees to share space
@@ -456,6 +512,33 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    if apply_stylesheet:
+        apply_stylesheet(app, theme="light_blue.xml", invert_secondary=True)
+    app.setStyleSheet(
+        app.styleSheet()
+        + f"""
+        QTreeView, QListView, QTableView {{
+            selection-background-color: {SELECTION_COLOR};
+            selection-color: #000000;
+        }}
+        QAbstractItemView::item:selected {{
+            background-color: {SELECTION_COLOR};
+            color: #000000;
+        }}
+        QTreeView::item:selected:active, QTreeView::item:selected:!active {{
+            background-color: {SELECTION_COLOR};
+            color: #000000;
+        }}
+        QMenu::item:selected {{
+            background-color: {SELECTION_COLOR};
+            color: #000000;
+        }}
+        QLineEdit, QTextEdit, QPlainTextEdit {{
+            selection-background-color: {SELECTION_COLOR};
+            selection-color: #000000;
+        }}
+        """
+    )
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

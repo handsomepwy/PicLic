@@ -89,6 +89,7 @@ DB file defaults to `piclic.db` in project root.
 1. Install dependencies (Python 3.10+):
    - `PyQt6`
    - `Pillow` (or Pillow-SIMD if available)
+   - `qt-material` (for Material theme support)
 2. Set photo root if needed in `config.py` (`ROOT_PICS_DIR`)
 3. Start app:
    - `python main.py`
