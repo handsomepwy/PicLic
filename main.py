@@ -333,7 +333,6 @@ class MainWindow(QMainWindow):
                     self.db.prune_unused_tags()
                     # Refresh the views
                     self._update_tag_completer()
-                    self._refresh_tag_tree()
                     self._on_image_selected()
                     self.statusBar().showMessage(f"Tag removed from image and cleaned up.")
 
@@ -349,7 +348,12 @@ class MainWindow(QMainWindow):
             
         # Get or create the tag(s)
         try:
+            # Refresh Tag Explorer only when a brand-new tag is created.
+            # We detect this by comparing total tag count before/after creation.
+            tag_count_before = len(self.db.get_all_tags())
             tag_id = self.db.get_or_create_tag_path(tag_path)
+            tag_count_after = len(self.db.get_all_tags())
+            new_tag_created = tag_count_after > tag_count_before
             
             # Apply to all selected images
             for index in indexes:
@@ -362,7 +366,8 @@ class MainWindow(QMainWindow):
             
             self.tag_input.clear()
             self._update_tag_completer()
-            self._refresh_tag_tree()
+            if new_tag_created:
+                self._refresh_tag_tree()
             self._on_image_selected() # Refresh tags list
             self.statusBar().showMessage(f"Tag '{tag_path}' applied to selected image(s).")
         except Exception as e:
