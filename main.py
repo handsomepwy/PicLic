@@ -162,7 +162,9 @@ class MainWindow(QMainWindow):
         self.tag_tree_view.setHeaderHidden(True)
         right_layout.addWidget(self.tag_tree_view)
         
-        right_layout.addStretch()
+        # Set stretch factors for the two trees to share space
+        right_layout.setStretch(3, 1) # Selected Image Tags tree
+        right_layout.setStretch(5, 2) # All Tags Explorer tree
         
         splitter.addWidget(right_panel)
         
