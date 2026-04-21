@@ -18,6 +18,8 @@ class Database:
     def _get_connection(self):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        # Required for ON DELETE CASCADE relationships to actually apply in SQLite.
+        conn.execute("PRAGMA foreign_keys = ON;")
         return conn
 
     def _init_db(self):
@@ -315,3 +317,36 @@ class Database:
         row = cursor.fetchone()
         conn.close()
         return row[0] if row else None
+
+    def prune_missing_images(self, root_dir=None):
+        """
+        Deletes image rows whose JPG path no longer exists on disk.
+        Cascades remove associated files and image_tags.
+        If root_dir is provided, limits pruning to that subtree.
+        """
+        norm_root = self.normalize_path(root_dir) if root_dir else None
+
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT id, jpg_path FROM images")
+            rows = cursor.fetchall()
+
+            ids_to_delete = []
+            for row in rows:
+                jpg_path = row["jpg_path"]
+                if norm_root and not jpg_path.startswith(norm_root + os.sep) and jpg_path != norm_root:
+                    continue
+                if not os.path.exists(jpg_path):
+                    ids_to_delete.append(row["id"])
+
+            if ids_to_delete:
+                placeholders = ", ".join(["?"] * len(ids_to_delete))
+                cursor.execute(f"DELETE FROM images WHERE id IN ({placeholders})", ids_to_delete)
+                conn.commit()
+
+            # Clean up tag nodes that are no longer used after image deletions.
+            self.prune_unused_tags()
+            return len(ids_to_delete)
+        finally:
+            conn.close()

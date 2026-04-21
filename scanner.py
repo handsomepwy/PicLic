@@ -65,9 +65,11 @@ class Scanner:
         if current_batch:
             self._commit_batch(current_batch)
             self.db.update_scan_status(scanned_count=total_scanned, current_path=root_dir)
-        
+
+        # Reconcile DB with disk by removing missing image entries.
+        removed_count = self.db.prune_missing_images(root_dir=root_dir)
         self.db.update_scan_status(is_running=False)
-        print(f"Scanning complete. Total images found: {total_scanned}")
+        print(f"Scanning complete. Total images found: {total_scanned}. Removed stale entries: {removed_count}")
 
     def _commit_batch(self, batch):
         """
