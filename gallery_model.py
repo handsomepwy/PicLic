@@ -95,11 +95,12 @@ class GalleryModel(QAbstractListModel):
                 return self.icon_provider.icon(QFileIconProvider.IconType.Folder)
             
             # Request thumbnail from manager
-            thumb = self.thumbnail_manager.cache.get(path, self.thumbnail_size)
+            norm_path = self.thumbnail_manager.normalize_path(path)
+            thumb = self.thumbnail_manager.cache.get(norm_path, self.thumbnail_size)
             if thumb:
                 return QPixmap.fromImage(thumb)
             else:
-                self.thumbnail_manager.get_thumbnail(path, self.thumbnail_size)
+                self.thumbnail_manager.get_thumbnail(path, self.thumbnail_size, image_id=item.get('id'))
                 return None
         
         elif role == Qt.ItemDataRole.DisplayRole:
@@ -110,8 +111,16 @@ class GalleryModel(QAbstractListModel):
 
         return None
 
-    def _on_thumbnail_ready(self, path, size, qimage):
-        # Find all rows that match this path and update them
+    def _on_thumbnail_ready(self, image_id, path, size, qimage):
+        # Update by stable DB id to avoid path string mismatches.
+        if image_id is not None and size == self.thumbnail_size:
+            for i, item in enumerate(self.items):
+                if item['type'] == 'image' and item.get('id') == image_id:
+                    idx = self.index(i)
+                    self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.DecorationRole])
+                    return
+
+        # Fallback for legacy/callers without image_id.
         for i, item in enumerate(self.items):
             if item['type'] == 'image' and item['path'] == path and size == self.thumbnail_size:
                 idx = self.index(i)

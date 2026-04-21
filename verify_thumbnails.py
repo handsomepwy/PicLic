@@ -13,7 +13,7 @@ def test_thumbnails():
         print(f"Error: {test_path} not found.")
         return
 
-    def on_thumbnail_ready(path, size, qimage):
+    def on_thumbnail_ready(image_id, path, size, qimage):
         print(f"SUCCESS: Thumbnail generated for {path}")
         print(f"Size: {qimage.width()}x{qimage.height()}, Format: {qimage.format()}")
         # Check if the size is correct (should be at most the requested size)

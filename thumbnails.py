@@ -77,7 +77,7 @@ class ThumbnailManager(QObject):
     Manager for thumbnail requests and caching.
     Uses a custom LIFO queue to handle high-frequency requests during scrolling.
     """
-    thumbnail_ready = pyqtSignal(str, int, QImage)
+    thumbnail_ready = pyqtSignal(object, str, int, QImage)
 
     def __init__(self, cache_size=config.THUMBNAIL_CACHE_SIZE):
         super().__init__()
@@ -99,16 +99,20 @@ class ThumbnailManager(QObject):
             t.start()
             self.workers.append(t)
 
-    def get_thumbnail(self, path, size):
+    @staticmethod
+    def normalize_path(path):
+        return os.path.normpath(os.path.normcase(os.path.abspath(path)))
+
+    def get_thumbnail(self, path, size, image_id=None):
         """
         Requests a thumbnail. If cached, emits immediately.
         Otherwise, adds to the FRONT of the queue (LIFO).
         """
-        path = os.path.normpath(os.path.normcase(os.path.abspath(path)))
+        path = self.normalize_path(path)
         
         cached_img = self.cache.get(path, size)
         if cached_img:
-            self.thumbnail_ready.emit(path, size, cached_img)
+            self.thumbnail_ready.emit(image_id, path, size, cached_img)
             return
 
         with self.lock:
@@ -116,12 +120,12 @@ class ThumbnailManager(QObject):
                 return
             
             # Add to front of queue (LIFO) so current visible items are processed first
-            self.request_queue.appendleft((path, size))
+            self.request_queue.appendleft((image_id, path, size))
             self.pending_paths.add((path, size))
             
             # Limit the queue size to avoid processing thousands of stale requests
             if len(self.request_queue) > 200:
-                old_path, old_size = self.request_queue.pop() # Remove from back (oldest)
+                _, old_path, old_size = self.request_queue.pop() # Remove from back (oldest)
                 self.pending_paths.discard((old_path, old_size))
 
     def clear_requests(self):
@@ -145,7 +149,7 @@ class ThumbnailManager(QObject):
                 time.sleep(0.01) # Small sleep when idle
                 continue
             
-            path, size = request
+            image_id, path, size = request
             try:
                 # Pillow-SIMD or Pillow decoding
                 with Image.open(path) as img:
@@ -160,7 +164,7 @@ class ThumbnailManager(QObject):
                     
                     # Store in cache and emit
                     self.cache.put(path, size, qimage)
-                    self.thumbnail_ready.emit(path, size, qimage)
+                    self.thumbnail_ready.emit(image_id, path, size, qimage)
             except Exception as e:
                 print(f"Error loading thumbnail for {path}: {e}")
             finally:
@@ -180,7 +184,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     manager = ThumbnailManager()
 
-    def on_ready(path, size, qimage):
+    def on_ready(image_id, path, size, qimage):
         print(f"Thumbnail ready: {path} ({qimage.width()}x{qimage.height()})")
         # If this was the last expected test, we could exit
         # app.quit()
